@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A/V Utility Platform</title>
+
+  <!-- DNS Prefetch and Preconnect for faster font loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Preload critical fonts for instant display -->
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Spline+Sans:wght@300;400;500;600;700&display=swap">
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+
+  <!-- Load fonts with optimized display strategy -->
+  <link href="https://fonts.googleapis.com/css2?family=Spline+Sans:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
+    rel="stylesheet">
+
+  <!-- Prevent FOUC with critical CSS -->
+  <style>
+    /* Critical CSS - Loaded immediately */
+    html {
+      background-color: #112117;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #112117;
+      color: #ffffff;
+      font-family: 'Spline Sans', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      opacity: 1;
+      transition: opacity 0.1s ease-in;
+    }
+
+    /* Prevent flash of unstyled content */
+    #root {
+      min-height: 100vh;
+      background-color: #112117;
+      opacity: 1;
+    }
+
+    /* Loading fallback for Material Icons */
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined', system-ui;
+      font-weight: normal;
+      font-style: normal;
+      font-size: 24px;
+      display: inline-block;
+      line-height: 1;
+      text-transform: none;
+      letter-spacing: normal;
+      word-wrap: normal;
+      white-space: nowrap;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>
