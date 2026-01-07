@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import AnimatedWaveform from './AnimatedWaveform';
+import GoogleSignInButton from './GoogleSignInButton';
 import { setAuthData } from '../utils/auth';
+import { trackLogin, setAnalyticsUserId } from '../utils/analytics';
 
-const API_URL = 'http://localhost:3000/api/auth';
+// Auth API endpoint
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+const API_URL = `${API_BASE}/auth`;
 
 const Login = () => {
     const navigate = useNavigate();
@@ -66,6 +70,10 @@ const Login = () => {
                 // Store auth data using utility
                 setAuthData(response.data.token, response.data.user);
 
+                // Track login event and set user ID
+                trackLogin('email');
+                setAnalyticsUserId(response.data.user.id || response.data.user._id);
+
                 // Show success toast
                 toast.success(response.data.message || 'Login successful!');
 
@@ -84,6 +92,26 @@ const Login = () => {
             toast.error(errorMessage);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleGoogleSignInSuccess = (result) => {
+        // Track Google login
+        trackLogin('google');
+        setAnalyticsUserId(result.user.uid);
+
+        toast.success(`Welcome, ${result.user.displayName || 'User'}!`);
+
+        // Navigate to dashboard (same as email/password login)
+        setTimeout(() => {
+            navigate('/dashboard');
+        }, 500);
+    };
+
+    const handleGoogleSignInError = (error) => {
+        // Don't show error toast if user just cancelled
+        if (error.message !== 'Sign-in cancelled') {
+            toast.error(error.message || 'Google sign-in failed. Please try again.');
         }
     };
 
@@ -196,6 +224,22 @@ const Login = () => {
                             </>
                         )}
                     </button>
+
+                    {/* Divider */}
+                    <div className="flex items-center gap-3 my-4">
+                        <div className="flex-1 h-px bg-border-dark"></div>
+                        <span className="text-xs text-text-muted">or continue with</span>
+                        <div className="flex-1 h-px bg-border-dark"></div>
+                    </div>
+
+                    {/* Other Sign-in Options */}
+                    <div className="flex flex-col gap-3">
+                        <p className="text-xs text-text-muted text-center">Other sign-in options</p>
+                        <GoogleSignInButton
+                            onSuccess={handleGoogleSignInSuccess}
+                            onError={handleGoogleSignInError}
+                        />
+                    </div>
 
                     {/* Security Microcopy */}
                     <div className="flex items-center justify-center gap-2 mt-2 opacity-60">

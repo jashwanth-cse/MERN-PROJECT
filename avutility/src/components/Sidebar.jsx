@@ -1,6 +1,7 @@
 import React from 'react';
 import { logout } from '../utils/auth';
 import { toast } from 'react-toastify';
+import { trackLogout } from '../utils/analytics';
 
 const Sidebar = ({ activeTab = 'extract-audio', onToolChange, user }) => {
     const audioTools = [
@@ -23,6 +24,8 @@ const Sidebar = ({ activeTab = 'extract-audio', onToolChange, user }) => {
 
     const handleLogout = () => {
         toast.info('Logging out...');
+        // Track logout event (also clears user ID)
+        trackLogout();
         setTimeout(() => {
             logout();
         }, 500);
@@ -106,8 +109,8 @@ const Sidebar = ({ activeTab = 'extract-audio', onToolChange, user }) => {
                 <button
                     onClick={() => handleToolClick('donate-us')}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-l-2 transition-all ${activeTab === 'donate-us'
-                            ? 'bg-primary/10 text-primary border-primary shadow-[0_0_15px_rgba(54,226,123,0.08)]'
-                            : 'bg-primary/10 hover:bg-primary/20 text-primary hover:text-primary border-primary/20 hover:border-primary/30 border-transparent'
+                        ? 'bg-primary/10 text-primary border-primary shadow-[0_0_15px_rgba(54,226,123,0.08)]'
+                        : 'bg-primary/10 hover:bg-primary/20 text-primary hover:text-primary border-primary/20 hover:border-primary/30 border-transparent'
                         }`}
                 >
                     <span className="material-symbols-outlined text-[18px]">volunteer_activism</span>
@@ -116,11 +119,24 @@ const Sidebar = ({ activeTab = 'extract-audio', onToolChange, user }) => {
 
                 {/* User Info */}
                 <div className="flex items-center gap-3 px-2 py-1">
-                    <div className="size-9 rounded-full bg-primary flex items-center justify-center text-background-dark font-bold text-xs shadow-md shadow-primary/20 shrink-0">
-                        {getUserInitials(user?.name)}
-                    </div>
+                    {/* Profile Picture or Initials */}
+                    {user?.photoURL ? (
+                        // Google user - show profile picture
+                        <img
+                            src={user.photoURL}
+                            alt={user.displayName || user.name || 'User'}
+                            className="size-9 rounded-full object-cover shadow-md shadow-primary/20 shrink-0 ring-2 ring-primary/30"
+                        />
+                    ) : (
+                        // Email/password user - show initials
+                        <div className="size-9 rounded-full bg-primary flex items-center justify-center text-background-dark font-bold text-xs shadow-md shadow-primary/20 shrink-0">
+                            {getUserInitials(user?.displayName || user?.name)}
+                        </div>
+                    )}
                     <div className="flex flex-col flex-1 min-w-0">
-                        <span className="text-sm font-medium text-white truncate">{user?.name || 'User'}</span>
+                        <span className="text-sm font-medium text-white truncate">
+                            {user?.displayName || user?.name || 'User'}
+                        </span>
                         <span className="text-xs text-text-muted truncate">{user?.email || ''}</span>
                     </div>
                 </div>

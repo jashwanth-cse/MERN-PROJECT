@@ -5,7 +5,9 @@ import { toast } from 'react-toastify';
 import AnimatedWaveform from './AnimatedWaveform';
 import { setAuthData } from '../utils/auth';
 
-const API_URL = 'http://localhost:3000/api/auth';
+// Auth API endpoint
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+const API_URL = `${API_BASE}/auth`;
 
 const Signup = () => {
     const navigate = useNavigate();

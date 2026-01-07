@@ -4,6 +4,7 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import Dashboard from './pages/Dashboard';
 import ProtectedRoute from './components/ProtectedRoute';
+import PageViewTracker from './components/PageViewTracker';
 import { isAuthenticated } from './utils/auth';
 
 // Auth page wrapper to redirect if already logged in
@@ -19,6 +20,8 @@ function App() {
 
   return (
     <BrowserRouter>
+      {/* Auto-track page views on route changes */}
+      <PageViewTracker />
       <div className="relative font-display antialiased text-white selection:bg-primary selection:text-background-dark bg-background-dark min-h-screen overflow-x-hidden">
         <Routes>
           {/* Auth Routes */}
