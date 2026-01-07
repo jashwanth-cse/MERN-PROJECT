@@ -9,6 +9,8 @@ const audioConvertRoutes = require("./routes/audioConvertRoutes");
 const audioCompressRoutes = require("./routes/audioCompressRoutes");
 const videoCompressRoutes = require("./routes/videoCompressRoutes");
 const { initializeCleanup } = require('./utils/cleanupUtil');
+const scheduledCleanup = require('./utils/scheduledCleanup');
+const { trackSession } = require('./middleware/sessionTracking');
 
 
 const app = express();
@@ -20,11 +22,14 @@ connectDB();
 // Middleware
 // Configure CORS to allow frontend requests
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174','http://127.0.0.1:5500'], // Vite dev server ports
+    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5500'], // Vite dev server ports
     credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Session tracking middleware (works for both Google OAuth and email/password)
+app.use(trackSession);
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -99,4 +104,8 @@ app.listen(PORT, () => {
 
     // Initialize automatic file cleanup
     initializeCleanup();
+
+    // Start scheduled cleanup service
+    scheduledCleanup.start();
+    console.log('🧹 Scheduled cleanup service started');
 });

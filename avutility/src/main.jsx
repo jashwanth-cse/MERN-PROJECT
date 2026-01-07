@@ -4,6 +4,14 @@ import './index.css'
 import App from './App.jsx'
 import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
+import { registerServiceWorker } from './utils/pushNotifications'
+
+// Register service worker for push notifications
+if ('serviceWorker' in navigator) {
+  registerServiceWorker().catch(err => {
+    console.warn('Service worker registration failed:', err);
+  });
+}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

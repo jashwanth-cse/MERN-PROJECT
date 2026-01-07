@@ -3,7 +3,8 @@
  * Handles service worker registration and push subscription management
  */
 
-const API_URL = 'http://localhost:3000/api/video-compress';
+// Use environment variable for API URL
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 /**
  * Register service worker
@@ -53,6 +54,7 @@ export async function requestNotificationPermission() {
     }
 
     if (Notification.permission === 'granted') {
+        console.log('✅ Notification permission already granted');
         return true;
     }
 
@@ -62,7 +64,9 @@ export async function requestNotificationPermission() {
     }
 
     try {
+        console.log('🔔 Requesting notification permission...');
         const permission = await Notification.requestPermission();
+        console.log('Permission result:', permission);
         return permission === 'granted';
     } catch (error) {
         console.error('Error requesting notification permission:', error);
@@ -96,10 +100,12 @@ function urlBase64ToUint8Array(base64String) {
  */
 async function getVapidPublicKey() {
     try {
+        console.log('🔑 Fetching VAPID public key from:', `${API_URL}/vapid-public-key`);
         const response = await fetch(`${API_URL}/vapid-public-key`);
         const data = await response.json();
 
         if (data.success) {
+            console.log('✅ VAPID public key received');
             return data.publicKey;
         } else {
             throw new Error(data.message || 'Failed to get VAPID key');
@@ -116,6 +122,8 @@ async function getVapidPublicKey() {
  */
 export async function subscribeToPush() {
     try {
+        console.log('📬 Starting push subscription process...');
+
         // Ensure we have permission
         const hasPermission = await requestNotificationPermission();
         if (!hasPermission) {
@@ -123,12 +131,16 @@ export async function subscribeToPush() {
         }
 
         // Get service worker registration
+        console.log('⏳ Waiting for service worker...');
         const registration = await navigator.serviceWorker.ready;
+        console.log('✅ Service worker ready');
 
         // Get existing subscription or create new one
         let subscription = await registration.pushManager.getSubscription();
 
         if (!subscription) {
+            console.log('📝 Creating new push subscription...');
+
             // Get VAPID public key from server
             const vapidPublicKey = await getVapidPublicKey();
 
@@ -144,18 +156,20 @@ export async function subscribeToPush() {
         }
 
         // Send subscription to server
+        console.log('📤 Sending subscription to server:', `${API_URL}/subscribe-push`);
         const response = await fetch(`${API_URL}/subscribe-push`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ subscription })
+            body: JSON.stringify({ subscription: subscription.toJSON() })
         });
 
         const data = await response.json();
+        console.log('📬 Server response:', data);
 
         if (data.success) {
-            console.log('✅ Push subscription sent to server');
+            console.log('✅ Push subscription sent to server. Subscription ID:', data.subscriptionId);
             return {
                 subscription,
                 subscriptionId: data.subscriptionId

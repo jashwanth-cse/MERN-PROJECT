@@ -123,6 +123,24 @@ class JobService {
 
         this.broadcastComplete(jobId);
 
+        // Send push notification if user subscribed
+        if (job.subscriptionId) {
+            const pushService = require('../utils/pushService');
+
+            pushService.sendNotification(job.subscriptionId, {
+                title: 'Processing Complete! 🎉',
+                body: `Your ${job.operationType.replace('-', ' ')} is ready to download!`,
+                icon: '/logo192.png',
+                badge: '/logo192.png',
+                data: {
+                    jobId: jobId,
+                    url: '/dashboard'
+                }
+            }).catch(error => {
+                console.error(`Failed to send push notification for job ${jobId}:`, error);
+            });
+        }
+
         // Process next job in queue
         this.processNextInQueue();
     }

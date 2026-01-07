@@ -1,6 +1,7 @@
 const { getR2Service } = require('../services/r2Service');
-const jobService = require('../services/jobService');
 const { getFFmpegService } = require('../services/ffmpegService');
+const jobService = require('../services/jobService');
+const { linkJobToSession } = require('../middleware/sessionTracking');
 const pushService = require('../utils/pushService');
 
 const r2Service = getR2Service();
@@ -40,7 +41,7 @@ const generateUploadUrl = async (req, res) => {
         if (!allowedTypes.includes(fileType)) {
             return res.status(400).json({
                 success: false,
-                message: `Unsupported file type. Allowed: ${allowedTypes.join(', ')}`,
+                message: `Unsupported file type.Allowed: ${allowedTypes.join(', ')} `,
             });
         }
 
@@ -89,7 +90,7 @@ const startJob = async (req, res) => {
         if (!validOperations.includes(operationType)) {
             return res.status(400).json({
                 success: false,
-                message: `Invalid operation type. Supported: ${validOperations.join(', ')}`,
+                message: `Invalid operation type.Supported: ${validOperations.join(', ')} `,
             });
         }
 
@@ -102,7 +103,7 @@ const startJob = async (req, res) => {
             });
         }
 
-        console.log(`🚀 Starting job: ${operationType} on ${objectKey}`);
+        console.log(`🚀 Starting job: ${operationType} on ${objectKey} `);
 
         // Create job
         const jobId = jobService.createJob({
@@ -114,13 +115,18 @@ const startJob = async (req, res) => {
 
         const job = jobService.getJob(jobId);
 
+        // Link job to user session (for cleanup when user disconnects)
+        if (req.sessionId) {
+            linkJobToSession(req.sessionId, jobId);
+        }
+
         // If job is pending (not queued), start processing immediately
         if (job.status === 'pending') {
             // Start FFmpeg processing in background
             setImmediate(() => {
                 ffmpegService.processJob(jobId, objectKey, operationType, options || {})
                     .catch(error => {
-                        console.error(`Background processing error for job ${jobId}:`, error);
+                        console.error(`Background processing error for job ${jobId}: `, error);
                     });
             });
 
@@ -222,11 +228,11 @@ const getDownloadUrl = async (req, res) => {
         if (job.status !== 'completed') {
             return res.status(400).json({
                 success: false,
-                message: `Job is not completed yet (status: ${job.status})`,
+                message: `Job is not completed yet(status: ${job.status})`,
             });
         }
 
-        console.log(`📥 Generating download URL for job: ${jobId}`);
+        console.log(`📥 Generating download URL for job: ${jobId} `);
 
         // Generate signed download URL (5 minutes expiry)
         const result = await r2Service.generateDownloadUrl(job.outputKey, 300);
@@ -265,7 +271,7 @@ const cleanupJob = async (req, res) => {
     try {
         const { jobId } = req.params;
 
-        console.log(`🗑️  Manual cleanup requested for job: ${jobId}`);
+        console.log(`🗑️  Manual cleanup requested for job: ${jobId} `);
 
         const result = await cleanupJobFiles(jobId);
 
@@ -300,9 +306,9 @@ async function cleanupJobFiles(jobId) {
         try {
             await r2Service.deleteObject(job.outputKey);
             deletedKeys.push(job.outputKey);
-            console.log(`🗑️  Deleted output from R2: ${job.outputKey}`);
+            console.log(`🗑️  Deleted output from R2: ${job.outputKey} `);
         } catch (error) {
-            console.error(`Failed to delete output: ${error.message}`);
+            console.error(`Failed to delete output: ${error.message} `);
         }
     }
 
@@ -313,7 +319,7 @@ async function cleanupJobFiles(jobId) {
         try {
             await r2Service.deleteObject(job.inputKey);
             deletedKeys.push(job.inputKey);
-            console.log(`🗑️  Deleted input from R2: ${job.inputKey}`);
+            console.log(`🗑️  Deleted input from R2: ${job.inputKey} `);
         } catch (error) {
             // Input might already be deleted by another cleanup call - this is fine
             console.log(`ℹ️  Input already deleted or doesn't exist: ${job.inputKey}`);

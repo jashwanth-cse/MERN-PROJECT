@@ -198,17 +198,11 @@ const CompressVideo = () => {
                 return;
             }
 
-            const subscription = await subscribeToPush();
-            if (subscription) {
-                // Send subscription to backend
-                const response = await axios.post(`${API_BASE_URL.replace('/api', '/api/video-compress')}/subscribe-push`, {
-                    subscription: subscription.toJSON()
-                });
-
-                if (response.data.success) {
-                    setPushSubscriptionId(response.data.subscriptionId);
-                    toast.success('Push notifications enabled!');
-                }
+            // subscribeToPush returns {subscription, subscriptionId}
+            const result = await subscribeToPush();
+            if (result && result.subscriptionId) {
+                setPushSubscriptionId(result.subscriptionId);
+                toast.success('Push notifications enabled!');
             }
         } catch (error) {
             console.error('Push subscription error:', error);
@@ -223,14 +217,19 @@ const CompressVideo = () => {
         }
 
         try {
-            await startProcessing(objectKey, 'video-compress', {
-                codec,
-                resolution,
-                videoBitrate,
-                preset,
-                audioOption,
-                pushSubscriptionId // Include push subscription if available
-            });
+            // Pass subscriptionId as 4th parameter (separate from options)
+            await startProcessing(
+                objectKey,
+                'video-compress',
+                {
+                    codec,
+                    resolution,
+                    videoBitrate,
+                    preset,
+                    audioOption
+                },
+                pushSubscriptionId // 4th parameter: subscriptionId
+            );
 
             // Show helpful toast about background processing
             if (pushSubscriptionId) {
