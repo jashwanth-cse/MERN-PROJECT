@@ -41,7 +41,7 @@ env:
       - RUNTIME
 
   - variable: ALLOWED_ORIGINS
-    value: http://localhost:5173,https://av-utility.web.app,https://av-utility.firebaseapp.com
+    value: http://localhost:5173,http://localhost:3000,https://av-utility.web.app,https://av-utility.firebaseapp.com
     availability:
       - RUNTIME
 
