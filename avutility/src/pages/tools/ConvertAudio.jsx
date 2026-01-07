@@ -1,22 +1,67 @@
-import React, { useState, useRef } from 'react';
-import axios from 'axios';
+import React, { useState, useRef, useEffect } from 'react';
 import { toast } from 'react-toastify';
+import { useR2Upload } from '../../hooks/useR2Upload';
+import { useJobProcessing } from '../../hooks/useJobProcessing';
+import { getDownloadUrl, downloadFromR2 } from '../../utils/r2ApiService';
+import axios from 'axios';
+import QueueStatus from '../../components/QueueStatus';
 
-const API_URL = 'http://localhost:3000/api/audio-convert';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 const ConvertAudio = () => {
+    // File selection
     const [selectedFile, setSelectedFile] = useState(null);
-    const [uploading, setUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
-    const [uploadedFileData, setUploadedFileData] = useState(null);
+    const fileInputRef = useRef(null);
+
+    // R2 Upload hook
+    const { upload: uploadToR2, uploading, progress: uploadProgress, objectKey, reset: resetUpload } = useR2Upload({
+        allowedTypes: ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', 'audio/'],
+        maxSize: 1 * 1024 * 1024 * 1024, // 1GB for audio
+    });
+
+    // Job Processing hook
+    const {
+        startProcessing,
+        jobId,
+        status: jobStatus,
+        progress: processingProgress,
+        timemark,
+        queuePosition,
+        isQueued,
+        isProcessing,
+        isCompleted,
+        reset: resetJob
+    } = useJobProcessing();
+
+    // Audio metadata
     const [analyzing, setAnalyzing] = useState(false);
     const [metadata, setMetadata] = useState(null);
+
+    // Conversion settings
     const [selectedFormat, setSelectedFormat] = useState('mp3');
     const [selectedBitrate, setSelectedBitrate] = useState('192k');
-    const [converting, setConverting] = useState(false);
-    const [conversionProgress, setConversionProgress] = useState(0);
-    const [convertedFile, setConvertedFile] = useState(null);
-    const fileInputRef = useRef(null);
+
+    // Download state
+    const [downloadUrl, setDownloadUrl] = useState(null);
+
+    // Watch for job completion and get download URL
+    useEffect(() => {
+        const fetchDownloadUrl = async () => {
+            if (isCompleted && jobId && !downloadUrl) {
+                try {
+                    console.log('Job completed, fetching download URL for jobId:', jobId);
+                    const downloadData = await getDownloadUrl(jobId);
+                    setDownloadUrl(downloadData);
+                    toast.success('Conversion completed! Ready to download.');
+                } catch (error) {
+                    console.error('Failed to get download URL:', error);
+                    toast.error('Processing completed but failed to generate download link');
+                }
+            }
+        };
+
+        fetchDownloadUrl();
+    }, [isCompleted, jobId, downloadUrl]);
 
     const handleFileSelect = (e) => {
         const file = e.target.files[0];
@@ -30,171 +75,104 @@ const ConvertAudio = () => {
             }
 
             setSelectedFile(file);
-            setUploadedFileData(null);
             setMetadata(null);
-            setConvertedFile(null);
-            setConversionProgress(0);
+            setDownloadUrl(null);
             toast.info(`Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
         }
     };
 
-    const uploadAudioFile = async () => {
+    const analyzeAudio = async () => {
         if (!selectedFile) {
             toast.error('Please select an audio file first');
             return;
         }
 
-        setUploading(true);
-        setUploadProgress(0);
-
         try {
-            // Step 1: Upload file
-            const formData = new FormData();
-            formData.append('file', selectedFile);
+            // Upload to R2
+            const key = await uploadToR2(selectedFile);
 
-            const uploadResponse = await axios.post(`${API_URL}/upload`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (progressEvent) => {
-                    const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                    setUploadProgress(percentCompleted);
-                }
-            });
-
-            if (!uploadResponse.data.success) {
-                throw new Error(uploadResponse.data.message);
-            }
-
-            setUploadedFileData(uploadResponse.data);
-            toast.success('Audio file uploaded successfully!');
-            setUploading(false);
-
-            // Step 2: Analyze metadata
+            // Analyze the uploaded file
             setAnalyzing(true);
-            const analyzeResponse = await axios.post(`${API_URL}/analyze`, {
-                inputFilePath: uploadResponse.data.inputFilePath
+            const response = await axios.post(`${API_BASE_URL}/analyze`, {
+                objectKey: key
             });
 
-            if (!analyzeResponse.data.success) {
-                throw new Error(analyzeResponse.data.message);
+            if (!response.data.success) {
+                throw new Error(response.data.message || 'Analysis failed');
             }
 
-            setMetadata(analyzeResponse.data.metadata);
-            toast.success('Audio metadata analyzed successfully!');
+            const audioData = response.data.data.audio?.[0];
+            if (!audioData) {
+                throw new Error('No audio stream found');
+            }
+
+            setMetadata({
+                codec: audioData.codec,
+                sampleRate: audioData.sampleRate,
+                bitrate: audioData.bitrate,
+                channels: audioData.channels,
+                duration: response.data.data.duration
+            });
+
+            toast.success('Audio analyzed successfully!');
 
         } catch (error) {
-            console.error('Error:', error);
-            const errorMessage = error.response?.data?.message || error.message || 'Operation failed';
-            toast.error(errorMessage);
+            console.error('Analysis error:', error);
+            toast.error(error.message || 'Analysis failed');
         } finally {
-            setUploading(false);
             setAnalyzing(false);
         }
     };
 
     const convertAudio = async () => {
-        if (!uploadedFileData) {
-            toast.error('Please upload an audio file first');
+        if (!objectKey) {
+            toast.error('Please upload and analyze a file first');
             return;
         }
 
-        setConverting(true);
-        setConversionProgress(0);
-
         try {
-            // Create request body
-            const requestBody = {
-                inputFilePath: uploadedFileData.inputFilePath,
-                outputFormat: selectedFormat,
-                bitrate: selectedBitrate
-            };
-
-            // Use EventSource for SSE (Server-Sent Events)
-            const eventSource = new EventSource(
-                `${API_URL}/convert-stream?` + new URLSearchParams({
-                    inputFilePath: requestBody.inputFilePath,
-                    outputFormat: requestBody.outputFormat,
-                    bitrate: requestBody.bitrate
-                })
-            );
-
-            // For POST with SSE, we need to use fetch with streaming
-            const response = await fetch(`${API_URL}/convert`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody)
+            await startProcessing(objectKey, 'audio-convert', {
+                format: selectedFormat,
+                bitrate: selectedBitrate,
+                sampleRate: 44100
             });
-
-            if (!response.ok) {
-                throw new Error('Failed to start conversion');
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-
-                if (done) break;
-
-                // Append new chunk to buffer
-                buffer += decoder.decode(value, { stream: true });
-
-                // Split by lines
-                const lines = buffer.split('\n');
-
-                // Keep the last line in the buffer as it might be incomplete
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (line.trim().startsWith('data: ')) {
-                        try {
-                            const jsonStr = line.trim().slice(6).trim();
-                            if (!jsonStr) continue;
-
-                            const data = JSON.parse(jsonStr);
-
-                            if (data.type === 'start') {
-                                setConversionProgress(0);
-                                console.log('🔄 Conversion started');
-                            } else if (data.type === 'progress') {
-                                setConversionProgress(data.progress);
-                                console.log(`📊 Progress: ${data.progress}% (${data.currentTime}s / ${data.totalTime}s)`);
-                            } else if (data.type === 'complete') {
-                                setConversionProgress(100);
-                                setConvertedFile(data.data);
-                                toast.success(`Audio converted to ${selectedFormat.toUpperCase()} successfully!`);
-                                console.log('✅ Conversion complete!');
-                            } else if (data.type === 'error') {
-                                throw new Error(data.error);
-                            }
-                        } catch (parseError) {
-                            console.warn('⚠️ JSON parse error:', parseError.message);
-                        }
-                    }
-                }
-            }
-
         } catch (error) {
             console.error('Conversion error:', error);
-            const errorMessage = error.message || 'Conversion failed';
-            toast.error(errorMessage);
-        } finally {
-            setConverting(false);
+            toast.error(error.message || 'Conversion failed');
         }
     };
 
-    const resetForm = () => {
+    const downloadFile = async () => {
+        if (!downloadUrl) return;
+
+        try {
+            // Regenerate fresh URL to avoid expiration
+            const freshDownloadData = await getDownloadUrl(jobId);
+            downloadFromR2(freshDownloadData.downloadUrl, freshDownloadData.fileName);
+            toast.success(`Download started: ${freshDownloadData.fileName}`);
+        } catch (error) {
+            console.error('Failed to generate fresh download URL:', error);
+            toast.error('Failed to generate download link. Please try again.');
+        }
+    };
+
+    const resetForm = async () => {
+        // Cleanup R2 files if job exists
+        if (jobId) {
+            try {
+                await axios.post(`${API_BASE_URL}/cleanup/${jobId}`);
+            } catch (error) {
+                console.error('Cleanup error:', error);
+            }
+        }
+
         setSelectedFile(null);
-        setUploadedFileData(null);
         setMetadata(null);
-        setConvertedFile(null);
-        setUploadProgress(0);
-        setConversionProgress(0);
+        setDownloadUrl(null);
         setSelectedFormat('mp3');
         setSelectedBitrate('192k');
+        resetJob();
+        resetUpload();
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -211,16 +189,9 @@ const ConvertAudio = () => {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const downloadFile = (url) => {
-        window.open(url, '_blank');
-        toast.success('Download started!');
-
-        // Reset form after initiating download
-        setTimeout(() => {
-            resetForm();
-            toast.info('Ready for next conversion!');
-        }, 2000);
-    };
+    const isAnalyzing = uploading || analyzing;
+    const canAnalyze = selectedFile && !isAnalyzing && !isProcessing && !isQueued && !downloadUrl;
+    const canConvert = metadata && !isProcessing && !isQueued && !isAnalyzing && !downloadUrl;
 
     return (
         <div className="flex-1 p-4 md:p-6 lg:p-8 flex flex-col overflow-hidden">
@@ -267,8 +238,8 @@ const ConvertAudio = () => {
                         </div>
                     )}
 
-                    {/* Selected File - Not Uploaded */}
-                    {selectedFile && !uploadedFileData && (
+                    {/* Selected File - Not Analyzed */}
+                    {selectedFile && !metadata && !downloadUrl && (
                         <div className="flex flex-col items-center justify-center h-full px-2">
                             <div className="mb-4 md:mb-6 p-4 md:p-5 lg:p-6 bg-primary/10 border border-primary/30 rounded-lg w-full max-w-md">
                                 <div className="flex items-center gap-3 md:gap-4 mb-3 md:mb-4">
@@ -280,7 +251,7 @@ const ConvertAudio = () => {
                                     <button
                                         onClick={resetForm}
                                         className="text-red-400 hover:text-red-300 flex-shrink-0"
-                                        disabled={uploading}
+                                        disabled={isAnalyzing}
                                     >
                                         <span className="material-symbols-outlined text-[20px] md:text-[24px]">close</span>
                                     </button>
@@ -290,7 +261,7 @@ const ConvertAudio = () => {
                                 {uploading && (
                                     <div className="mb-3 md:mb-4">
                                         <div className="flex items-center justify-between mb-2">
-                                            <span className="text-xs md:text-sm text-white font-medium">Uploading...</span>
+                                            <span className="text-xs md:text-sm text-white font-medium">Uploading to cloud...</span>
                                             <span className="text-xs md:text-sm text-primary font-bold">{uploadProgress}%</span>
                                         </div>
                                         <div className="w-full bg-surface-dark rounded-full h-2">
@@ -301,37 +272,71 @@ const ConvertAudio = () => {
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Analyzing */}
+                                {analyzing && (
+                                    <div className="flex items-center justify-center gap-2 text-primary">
+                                        <span className="material-symbols-outlined animate-spin text-[20px]">refresh</span>
+                                        <span className="text-sm font-medium">Analyzing audio...</span>
+                                    </div>
+                                )}
                             </div>
 
-                            {!uploading && (
+                            {!isAnalyzing && (
                                 <button
-                                    onClick={uploadAudioFile}
-                                    className="flex items-center gap-2 px-5 md:px-6 py-2.5 md:py-3 bg-primary hover:bg-[#2fd16e] text-background-dark font-bold text-xs md:text-sm rounded-full shadow-[0_0_20px_rgba(54,226,123,0.3)] hover:shadow-[0_0_30px_rgba(54,226,123,0.5)] transition-all transform hover:-translate-y-1"
+                                    onClick={analyzeAudio}
+                                    disabled={!canAnalyze}
+                                    className="flex items-center gap-2 px-5 md:px-6 py-2.5 md:py-3 bg-primary hover:bg-[#2fd16e] text-background-dark font-bold text-xs md:text-sm rounded-full shadow-[0_0_20px_rgba(54,226,123,0.3)] hover:shadow-[0_0_30px_rgba(54,226,123,0.5)] transition-all transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <span className="material-symbols-outlined text-[16px] md:text-[18px]">upload</span>
+                                    <span className="material-symbols-outlined text-[16px] md:text-[18px]">analytics</span>
                                     Upload & Analyze
                                 </button>
                             )}
                         </div>
                     )}
 
-                    {/* File Uploaded - Analyzing */}
-                    {uploadedFileData && analyzing && (
-                        <div className="flex flex-col items-center justify-center h-full px-2">
+                    {/* Queue Status */}
+                    {isQueued && queuePosition && (
+                        <div className="mb-6">
+                            <QueueStatus status={jobStatus} queuePosition={queuePosition} />
+                        </div>
+                    )}
+
+                    {/* Processing Status */}
+                    {isProcessing && (
+                        <div className="flex flex-col items-center justify-center h-full">
                             <div className="mb-4 md:mb-6 p-4 md:p-5 lg:p-6 bg-primary/10 border border-primary/30 rounded-lg w-full max-w-md">
-                                <div className="flex items-center justify-center gap-3 mb-3 md:mb-4">
-                                    <span className="material-symbols-outlined text-primary animate-spin text-[28px] md:text-[32px]">refresh</span>
+                                <div className="flex items-center gap-3 mb-3 md:mb-4">
+                                    <span className="material-symbols-outlined text-primary animate-spin text-[24px]">sync</span>
                                     <div>
-                                        <h3 className="text-white font-bold text-xs md:text-sm">Analyzing Audio...</h3>
-                                        <p className="text-text-muted text-[10px] md:text-xs">Extracting metadata using FFprobe</p>
+                                        <h3 className="text-white font-bold text-sm">Converting Audio</h3>
+                                        <p className="text-text-muted text-xs">Converting to {selectedFormat.toUpperCase()}</p>
+                                    </div>
+                                </div>
+
+                                {/* Progress Bar */}
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-text-muted">Progress</span>
+                                        <span className="text-primary font-bold">{processingProgress}%</span>
+                                    </div>
+                                    <div className="w-full bg-surface-dark rounded-full h-3">
+                                        <div
+                                            className="bg-primary h-full transition-all duration-300 rounded-full"
+                                            style={{ width: `${processingProgress}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="flex justify-between text-xs text-text-muted">
+                                        <span>Time: {timemark}</span>
+                                        <span>{jobStatus}</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* File Analyzed Successfully - Ready to Convert */}
-                    {uploadedFileData && metadata && !analyzing && !converting && !convertedFile && (
+                    {/* File Analyzed - Ready to Convert */}
+                    {metadata && !isProcessing && !isQueued && !downloadUrl && (
                         <div className="w-full max-w-4xl mx-auto">
                             <div className="p-3 md:p-4 lg:p-5 bg-primary/10 border border-primary/30 rounded-lg mb-3 md:mb-4">
                                 <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
@@ -342,25 +347,13 @@ const ConvertAudio = () => {
                                     </div>
                                 </div>
 
-                                {/* File Info */}
-                                <div className="grid grid-cols-2 gap-2 md:gap-3 mb-3 md:mb-4">
-                                    <div className="p-2 md:p-3 bg-surface-dark/50 rounded-lg">
-                                        <span className="text-text-muted text-[10px] md:text-xs block mb-1">Original Format</span>
-                                        <span className="text-white font-bold text-xs md:text-sm uppercase">{uploadedFileData.originalFormat}</span>
-                                    </div>
-                                    <div className="p-2 md:p-3 bg-surface-dark/50 rounded-lg">
-                                        <span className="text-text-muted text-[10px] md:text-xs block mb-1">File Size</span>
-                                        <span className="text-white font-bold text-xs md:text-sm">{uploadedFileData.data.fileSizeMB} MB</span>
-                                    </div>
-                                </div>
-
                                 {/* Metadata Grid */}
                                 <div className="border-t border-border-dark/50 pt-3 md:pt-4 mb-3 md:mb-4">
                                     <h4 className="text-white font-bold text-xs md:text-sm mb-2 md:mb-3 flex items-center gap-2">
                                         <span className="material-symbols-outlined text-[16px] md:text-[18px] text-primary">analytics</span>
                                         Audio Properties
                                     </h4>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
                                         <div className="p-2 md:p-3 bg-surface-dark/50 rounded-lg">
                                             <span className="text-text-muted text-[10px] md:text-xs block mb-1">Codec</span>
                                             <span className="text-white font-bold text-xs md:text-sm uppercase break-all">{metadata.codec}</span>
@@ -376,10 +369,6 @@ const ConvertAudio = () => {
                                         <div className="p-2 md:p-3 bg-surface-dark/50 rounded-lg">
                                             <span className="text-text-muted text-[10px] md:text-xs block mb-1">Channels</span>
                                             <span className="text-white font-bold text-xs md:text-sm">{metadata.channels || 'N/A'}</span>
-                                        </div>
-                                        <div className="p-2 md:p-3 bg-surface-dark/50 rounded-lg">
-                                            <span className="text-text-muted text-[10px] md:text-xs block mb-1">Layout</span>
-                                            <span className="text-white font-bold text-xs md:text-sm capitalize">{metadata.channelLayout}</span>
                                         </div>
                                         <div className="p-2 md:p-3 bg-surface-dark/50 rounded-lg">
                                             <span className="text-text-muted text-[10px] md:text-xs block mb-1">Duration</span>
@@ -452,7 +441,8 @@ const ConvertAudio = () => {
                                 </button>
                                 <button
                                     onClick={convertAudio}
-                                    className="flex items-center gap-2 px-5 md:px-6 py-2.5 md:py-3 bg-primary hover:bg-[#2fd16e] text-background-dark font-bold text-xs md:text-sm rounded-full shadow-[0_0_20px_rgba(54,226,123,0.3)] hover:shadow-[0_0_30px_rgba(54,226,123,0.5)] transition-all transform hover:-translate-y-1"
+                                    disabled={!canConvert}
+                                    className="flex items-center gap-2 px-5 md:px-6 py-2.5 md:py-3 bg-primary hover:bg-[#2fd16e] text-background-dark font-bold text-xs md:text-sm rounded-full shadow-[0_0_20px_rgba(54,226,123,0.3)] hover:shadow-[0_0_30px_rgba(54,226,123,0.5)] transition-all transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <span className="material-symbols-outlined text-[16px] md:text-[18px]">transform</span>
                                     Convert to {selectedFormat.toUpperCase()}
@@ -461,64 +451,42 @@ const ConvertAudio = () => {
                         </div>
                     )}
 
-                    {/* Converting */}
-                    {converting && (
-                        <div className="flex flex-col items-center justify-center h-full px-2">
-                            <div className="mb-4 md:mb-6 p-4 md:p-5 lg:p-6 bg-primary/10 border border-primary/30 rounded-lg w-full max-w-md">
-                                <div className="flex items-center justify-center gap-3 mb-3 md:mb-4">
-                                    <span className="material-symbols-outlined text-primary animate-spin text-[28px] md:text-[32px]">refresh</span>
-                                    <div>
-                                        <h3 className="text-white font-bold text-xs md:text-sm">Converting Audio...</h3>
-                                        <p className="text-text-muted text-[10px] md:text-xs">Converting to {selectedFormat.toUpperCase()}</p>
-                                    </div>
-                                </div>
-
-                                {/* Progress Bar */}
-                                <div className="mt-3">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-xs md:text-sm text-white font-medium">Progress</span>
-                                        <span className="text-xs md:text-sm text-primary font-bold">{conversionProgress}%</span>
-                                    </div>
-                                    <div className="w-full bg-surface-dark rounded-full h-2">
-                                        <div
-                                            className="bg-primary h-full transition-all duration-300 rounded-full"
-                                            style={{ width: `${conversionProgress}%` }}
-                                        ></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Conversion Complete */}
-                    {convertedFile && !converting && (
+                    {downloadUrl && (
                         <div className="flex flex-col items-center justify-center h-full px-2">
                             <div className="mb-4 md:mb-6 p-4 md:p-5 lg:p-6 bg-primary/10 border border-primary/30 rounded-lg w-full max-w-md">
                                 <div className="flex items-center gap-3 mb-4">
                                     <span className="material-symbols-outlined text-primary text-[32px]">check_circle</span>
                                     <div>
                                         <h3 className="text-white font-bold text-sm">Conversion Complete!</h3>
-                                        <p className="text-text-muted text-xs">Download will start automatically</p>
+                                        <p className="text-text-muted text-xs">Your file is ready to download</p>
                                     </div>
                                 </div>
 
                                 <div className="space-y-2 mb-4">
                                     <div className="flex justify-between items-center p-2 bg-surface-dark/50 rounded-lg">
                                         <span className="text-text-muted text-xs">Format</span>
-                                        <span className="text-white font-bold text-sm uppercase">{convertedFile.format}</span>
+                                        <span className="text-white font-bold text-sm uppercase">{selectedFormat}</span>
                                     </div>
                                     <div className="flex justify-between items-center p-2 bg-surface-dark/50 rounded-lg">
                                         <span className="text-text-muted text-xs">Size</span>
-                                        <span className="text-white font-bold text-sm">{convertedFile.fileSizeMB} MB</span>
+                                        <span className="text-white font-bold text-sm">{(downloadUrl.fileSize / (1024 * 1024)).toFixed(2)} MB</span>
                                     </div>
                                 </div>
 
                                 <button
-                                    onClick={() => downloadFile(convertedFile.downloadUrl)}
+                                    onClick={downloadFile}
                                     className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 hover:border-primary/50 text-sm rounded-lg transition-all"
                                 >
                                     <span className="material-symbols-outlined text-[18px]">download</span>
-                                    Download 
+                                    Download
+                                </button>
+
+                                <button
+                                    onClick={resetForm}
+                                    className="w-full mt-3 px-6 py-2 bg-transparent border border-border-dark hover:border-text-muted text-white font-medium text-sm rounded-lg transition-all"
+                                >
+                                    Convert Another File
                                 </button>
                             </div>
                         </div>
@@ -531,14 +499,14 @@ const ConvertAudio = () => {
                 <div className="flex gap-2 md:gap-4">
                     <span className="flex items-center gap-1">
                         <span className="material-symbols-outlined text-[12px] md:text-[14px]">check_circle</span>
-                        <span className="hidden sm:inline">System Operational</span>
+                        <span className="hidden sm:inline">R2 Cloud Storage</span>
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="material-symbols-outlined text-[12px] md:text-[14px]">bolt</span>
                         <span className="hidden sm:inline">Fast Processing</span>
                     </span>
                 </div>
-                <div>v3.0.0</div>
+                <div>v3.1.0</div>
             </div>
         </div>
     );
