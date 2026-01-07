@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getUser } from '../utils/auth';
 import Sidebar from '../components/Sidebar';
 import WaveformHeader from '../components/WaveformHeader';
+import { trackPageView, trackEvent } from '../utils/analytics';
 
 // Import all tool components
 import ExtractAudio from './tools/ExtractAudio';
@@ -66,6 +67,22 @@ const Dashboard = () => {
             setUser(storedUser);
         }
     }, []);
+
+    // Track tool changes for analytics
+    useEffect(() => {
+        if (selectedTool) {
+            const toolTitle = toolConfig[selectedTool]?.title || selectedTool;
+
+            // Track as virtual page view for better navigation flow visibility
+            trackPageView(`/dashboard/${selectedTool}`, `Dashboard - ${toolTitle}`);
+
+            // Also track as custom event for tool usage analysis
+            trackEvent('tool_selected', {
+                tool_id: selectedTool,
+                tool_name: toolTitle,
+            });
+        }
+    }, [selectedTool]);
 
     const handleToolChange = (toolId) => {
         setSelectedTool(toolId);
