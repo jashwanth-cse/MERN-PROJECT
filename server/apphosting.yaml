@@ -1,23 +1,107 @@
-# Settings for Backend (on Cloud Run).
-# See https://firebase.google.com/docs/app-hosting/configure#cloud-run
+# Firebase App Hosting Configuration for AV Utility Platform Backend
+# Optimized to use YOUR existing secrets
+
 runConfig:
+  cpu: 2
+  memoryMiB: 2048
   minInstances: 0
-  # maxInstances: 100
-  # concurrency: 80
-  # cpu: 1
-  # memoryMiB: 512
+  maxInstances: 10
+  concurrency: 80
 
-# Environment variables and secrets.
-# env:
-  # Configure environment variables.
-  # See https://firebase.google.com/docs/app-hosting/configure#user-defined-environment
-  # - variable: MESSAGE
-  #   value: Hello world!
-  #   availability:
-  #     - BUILD
-  #     - RUNTIME
+env:
+  # Hardcoded non-sensitive values
+  - variable: NODE_ENV
+    value: production
+    availability:
+      - RUNTIME
 
-  # Grant access to secrets in Cloud Secret Manager.
-  # See https://firebase.google.com/docs/app-hosting/configure#secret-parameters
-  # - variable: MY_SECRET
-  #   secret: mySecretRef
+  - variable: R2_REGION
+    value: auto
+    availability:
+      - RUNTIME
+
+  - variable: R2_ENDPOINT
+    value: https://a5d8a04226782a520f7e244b3ba144b6.r2.cloudflarestorage.com
+    availability:
+      - RUNTIME
+
+  - variable: CLEANUP_INTERVAL_MS
+    value: "300000"
+    availability:
+      - RUNTIME
+
+  - variable: JOB_RETENTION_MS
+    value: "86400000"
+    availability:
+      - RUNTIME
+
+  - variable: SIGNED_URL_EXPIRY
+    value: "300"
+    availability:
+      - RUNTIME
+
+  - variable: ALLOWED_ORIGINS
+    value: http://localhost:5173,https://av-utility.web.app,https://av-utility.firebaseapp.com
+    availability:
+      - RUNTIME
+
+  # Secrets from GCP Secret Manager (matching YOUR secret names)
+  - variable: PORT
+    secret: PORT
+    availability:
+      - RUNTIME
+
+  - variable: MONGO_URI
+    secret: MONGO_URI
+    availability:
+      - RUNTIME
+
+  - variable: JWT_SECRET
+    secret: JWT_SECRET
+    availability:
+      - RUNTIME
+
+  - variable: R2_ACCOUNT_ID
+    secret: R2_ACCOUNT_ID
+    availability:
+      - RUNTIME
+
+  - variable: R2_ACCESS_KEY_ID
+    secret: R2_ACCESS_KEY_ID
+    availability:
+      - RUNTIME
+
+  - variable: R2_SECRET_ACCESS_KEY
+    secret: R2_SECRET_ACCESS_KEY
+    availability:
+      - RUNTIME
+
+  - variable: R2_BUCKET_NAME
+    secret: R2_BUCKET_NAME
+    availability:
+      - RUNTIME
+
+  - variable: MAX_CONCURRENT_JOBS
+    secret: MAX_CONCURRENT_JOBS
+    availability:
+      - RUNTIME
+
+  - variable: JOB_TIMEOUT_MINUTES
+    secret: JOB_TIMEOUT_MINUTES
+    availability:
+      - RUNTIME
+
+  - variable: VAPID_PUBLIC_KEY
+    secret: VAPID_PUBLIC_KEY
+    availability:
+      - RUNTIME
+
+  - variable: VAPID_PRIVATE_KEY
+    secret: VAPID_PRIVATE_KEY
+    availability:
+      - RUNTIME
+
+  - variable: VAPID_SUBJECT
+    secret: VAPID_SUBJECT
+    availability:
+      - RUNTIME

@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const jobRepository = require('../repositories/jobRepository');
 
 /**
  * Enhanced Job Service for R2-based media processing
@@ -48,6 +49,11 @@ class JobService {
 
         this.jobs.set(jobId, job);
 
+        // Persist to Firestore
+        jobRepository.saveJob(jobId, job).catch(err => {
+            console.error(`Failed to save job ${jobId} to Firestore:`, err);
+        });
+
         // Check if we can start immediately or need to queue
         const activeJobs = this.getActiveJobCount();
         if (activeJobs >= this.maxConcurrentJobs) {
@@ -64,10 +70,31 @@ class JobService {
     /**
      * Get job by ID
      * @param {string} jobId
-     * @returns {Object|null}
+     * @returns {Promise<Object|null>}
      */
-    getJob(jobId) {
-        return this.jobs.get(jobId) || null;
+    async getJob(jobId) {
+        // Try memory first (faster for active jobs)
+        let job = this.jobs.get(jobId);
+
+        if (job) {
+            return job;
+        }
+
+        // Fall back to Firestore (for jobs on other instances)
+        try {
+            job = await jobRepository.getJob(jobId);
+
+            if (job) {
+                // Load into memory for future requests
+                this.jobs.set(jobId, job);
+                console.log(`📥 Loaded job ${jobId} from Firestore`);
+            }
+
+            return job;
+        } catch (error) {
+            console.error(`Error fetching job ${jobId}:`, error);
+            return null;
+        }
     }
 
     /**
@@ -81,6 +108,11 @@ class JobService {
         job.status = 'processing';
         job.startedAt = Date.now();
         console.log(`▶️  Job started: ${jobId}`);
+
+        // Persist to Firestore
+        jobRepository.saveJob(jobId, job).catch(err => {
+            console.error(`Failed to update job ${jobId} in Firestore:`, err);
+        });
 
         this.broadcastProgress(jobId);
     }
@@ -97,6 +129,11 @@ class JobService {
 
         job.progress = Math.min(100, Math.max(0, percent));
         job.timemark = timemark;
+
+        // Persist to Firestore (async, don't wait)
+        jobRepository.saveJob(jobId, job).catch(err => {
+            console.error(`Failed to update job ${jobId} progress:`, err);
+        });
 
         this.broadcastProgress(jobId);
     }
@@ -120,6 +157,11 @@ class JobService {
         job.result = result;
 
         console.log(`✅ Job completed: ${jobId}`);
+
+        // Persist to Firestore
+        jobRepository.saveJob(jobId, job).catch(err => {
+            console.error(`Failed to save completed job ${jobId}:`, err);
+        });
 
         this.broadcastComplete(jobId);
 
@@ -159,6 +201,11 @@ class JobService {
         job.completedAt = Date.now();
 
         console.log(`❌ Job failed: ${jobId} - ${error}`);
+
+        // Persist to Firestore
+        jobRepository.saveJob(jobId, job).catch(err => {
+            console.error(`Failed to save failed job ${jobId}:`, err);
+        });
 
         this.broadcastError(jobId);
 
@@ -361,6 +408,12 @@ class JobService {
         }
 
         this.jobs.delete(jobId);
+
+        // Delete from Firestore
+        jobRepository.deleteJob(jobId).catch(err => {
+            console.error(`Failed to delete job ${jobId} from Firestore:`, err);
+        });
+
         console.log(`🗑️  Job deleted: ${jobId}`);
     }
 

@@ -113,7 +113,7 @@ const startJob = async (req, res) => {
             subscriptionId,
         });
 
-        const job = jobService.getJob(jobId);
+        const job = await jobService.getJob(jobId);
 
         // Link job to user session (for cleanup when user disconnects)
         if (req.sessionId) {
@@ -170,7 +170,7 @@ const getJobStatus = async (req, res) => {
         const { jobId } = req.params;
 
         // Check if job exists
-        const job = jobService.getJob(jobId);
+        const job = await jobService.getJob(jobId);
         if (!job) {
             return res.status(404).json({
                 success: false,
@@ -215,8 +215,8 @@ const getDownloadUrl = async (req, res) => {
     try {
         const { jobId } = req.params;
 
-        // Get job
-        const job = jobService.getJob(jobId);
+        // Get job (now async - checks Firestore if not in memory)
+        const job = await jobService.getJob(jobId);
         if (!job) {
             return res.status(404).json({
                 success: false,
@@ -294,7 +294,7 @@ const cleanupJob = async (req, res) => {
  * Helper: Cleanup job files from R2 and memory
  */
 async function cleanupJobFiles(jobId) {
-    const job = jobService.getJob(jobId);
+    const job = await jobService.getJob(jobId);
     if (!job) {
         throw new Error('Job not found');
     }
