@@ -3,6 +3,7 @@ const {
     generateUploadUrl,
     startJob,
     getJobStatus,
+    checkJobStatus,
     getDownloadUrl,
     cleanupJob,
     analyzeMedia,
@@ -28,6 +29,10 @@ router.post('/start-job', startJob);
 // GET /api/job-status/:jobId
 // Get job status with SSE for real-time progress updates
 router.get('/job-status/:jobId', getJobStatus);
+
+// GET /api/job-status-check/:jobId
+// Check job status (polling fallback when SSE disconnects)
+router.get('/job-status-check/:jobId', checkJobStatus);
 
 // GET /api/download-url/:jobId
 // Generate presigned download URL for completed job

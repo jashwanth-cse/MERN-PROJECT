@@ -208,6 +208,46 @@ const getJobStatus = async (req, res) => {
 };
 
 /**
+ * Check job status (for polling fallback when SSE fails)
+ * GET /api/job-status-check/:jobId
+ */
+const checkJobStatus = async (req, res) => {
+    try {
+        const { jobId } = req.params;
+
+        // Get job from Firestore (handles cross-instance)
+        const job = await jobService.getJob(jobId);
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'Job not found',
+            });
+        }
+
+        // Return current job status
+        res.json({
+            success: true,
+            data: {
+                jobId: job.id,
+                status: job.status,
+                progress: job.progress,
+                timemark: job.timemark,
+                queuePosition: jobService.getQueuePosition(jobId),
+                result: job.result,
+                error: job.error,
+            },
+        });
+    } catch (error) {
+        console.error('❌ Check job status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check job status',
+            error: error.message,
+        });
+    }
+};
+
+/**
  * Generate download URL for completed job
  * GET /api/download-url/:jobId
  */
@@ -530,6 +570,7 @@ module.exports = {
     generateUploadUrl,
     startJob,
     getJobStatus,
+    checkJobStatus,
     getDownloadUrl,
     cleanupJob,
     analyzeMedia,

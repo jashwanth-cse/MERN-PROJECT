@@ -103,80 +103,184 @@ export const startJob = async (objectKey, operationType, options, subscriptionId
 
 /**
  * Step 4: Connect to job status updates via Server-Sent Events (SSE)
+ * With automatic reconnection and polling fallback
  * @param {string} jobId - Job ID from startJob
  * @param {object} callbacks - Event callbacks
  * @param {Function} callbacks.onProgress - (progressData) => void
  * @param {Function} callbacks.onComplete - (resultData) => void
  * @param {Function} callbacks.onError - (errorMessage) => void
  * @param {Function} callbacks.onQueueUpdate - (queueData) => void
- * @returns {EventSource} EventSource instance (call .close() to disconnect)
+ * @param {Function} callbacks.onConnectionLost - () => void (optional)
+ * @returns {object} Connection object with { close, reconnect } methods
  */
 export const connectToJobStatus = (jobId, callbacks) => {
-    const eventSource = new EventSource(`${API_BASE_URL}/job-status/${jobId}`);
+    let eventSource = null;
+    let reconnectAttempts = 0;
+    let maxReconnectAttempts = 3;
+    let pollingInterval = null;
+    let isClosed = false;
 
-    eventSource.onmessage = (event) => {
+    const connect = () => {
+        if (isClosed) return;
+
         try {
-            const data = JSON.parse(event.data);
+            eventSource = new EventSource(`${API_BASE_URL}/job-status/${jobId}`);
 
-            switch (data.type) {
-                case 'progress':
-                    if (callbacks.onProgress) {
-                        callbacks.onProgress({
-                            progress: data.progress || 0,
-                            timemark: data.timemark || '00:00:00',
-                            status: data.status,
-                            queuePosition: data.queuePosition
-                        });
-                    }
-                    // Also handle queue updates
-                    if (data.queuePosition !== undefined && callbacks.onQueueUpdate) {
-                        callbacks.onQueueUpdate({
-                            queuePosition: data.queuePosition,
-                            status: data.status
-                        });
-                    }
-                    break;
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    reconnectAttempts = 0; // Reset on successful message
 
-                case 'complete':
-                    if (callbacks.onComplete) {
-                        callbacks.onComplete(data.result);
-                    }
-                    eventSource.close();
-                    break;
+                    switch (data.type) {
+                        case 'progress':
+                            if (callbacks.onProgress) {
+                                callbacks.onProgress({
+                                    progress: data.progress || 0,
+                                    timemark: data.timemark || '00:00:00',
+                                    status: data.status,
+                                    queuePosition: data.queuePosition
+                                });
+                            }
+                            if (data.queuePosition !== undefined && callbacks.onQueueUpdate) {
+                                callbacks.onQueueUpdate({
+                                    queuePosition: data.queuePosition,
+                                    status: data.status
+                                });
+                            }
+                            break;
 
-                case 'error':
-                    if (callbacks.onError) {
-                        callbacks.onError(data.message || 'Job failed');
-                    }
-                    eventSource.close();
-                    break;
+                        case 'complete':
+                            if (callbacks.onComplete) {
+                                callbacks.onComplete(data.result);
+                            }
+                            cleanup();
+                            break;
 
-                default:
-                    console.warn('Unknown SSE event type:', data.type);
-            }
+                        case 'error':
+                            if (callbacks.onError) {
+                                callbacks.onError(data.message || 'Job failed');
+                            }
+                            cleanup();
+                            break;
+
+                        default:
+                            console.warn('Unknown SSE event type:', data.type);
+                    }
+                } catch (error) {
+                    console.error('Error parsing SSE data:', error);
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('SSE connection error:', error);
+                eventSource.close();
+
+                // Notify UI of connection loss
+                if (callbacks.onConnectionLost) {
+                    callbacks.onConnectionLost();
+                }
+
+                // Try to reconnect or fall back to polling
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    console.log(`Reconnecting... (${reconnectAttempts}/${maxReconnectAttempts})`);
+                    setTimeout(connect, 2000); // Reconnect after 2 seconds
+                } else {
+                    console.log('Max reconnect attempts reached, switching to polling');
+                    startPolling();
+                }
+            };
         } catch (error) {
-            console.error('Error parsing SSE data:', error);
+            console.error('Error creating EventSource:', error);
+            startPolling();
         }
     };
 
-    eventSource.onerror = (error) => {
-        console.error('SSE connection error:', error);
-        if (callbacks.onError) {
-            callbacks.onError('Connection lost. Please refresh the page.');
-        }
-        eventSource.close();
+    const startPolling = () => {
+        if (isClosed || pollingInterval) return;
+
+        console.log('📊 Starting status polling (every 3 seconds)');
+
+        pollingInterval = setInterval(async () => {
+            try {
+                const status = await checkJobStatus(jobId);
+
+                if (callbacks.onProgress && status.status !== 'completed' && status.status !== 'failed') {
+                    callbacks.onProgress({
+                        progress: status.progress || 0,
+                        timemark: status.timemark || '00:00:00',
+                        status: status.status,
+                        queuePosition: status.queuePosition
+                    });
+                }
+
+                if (status.status === 'completed') {
+                    if (callbacks.onComplete) {
+                        callbacks.onComplete(status.result);
+                    }
+                    cleanup();
+                } else if (status.status === 'failed') {
+                    if (callbacks.onError) {
+                        callbacks.onError(status.error || 'Job failed');
+                    }
+                    cleanup();
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }, 3000); // Poll every 3 seconds
     };
 
-    return eventSource;
+    const cleanup = () => {
+        isClosed = true;
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+    };
+
+    // Start initial connection
+    connect();
+
+    // Return control object
+    return {
+        close: cleanup,
+        reconnect: () => {
+            reconnectAttempts = 0;
+            connect();
+        }
+    };
 };
 
 /**
- * Disconnect from SSE stream
- * @param {EventSource} eventSource - EventSource instance to close
+ * Check job status (used by polling fallback)
+ * @param {string} jobId - Job ID
+ * @returns {Promise<object>} Job status object
  */
-export const disconnectJobStatus = (eventSource) => {
-    if (eventSource) {
-        eventSource.close();
+export const checkJobStatus = async (jobId) => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/job-status-check/${jobId}`);
+        if (!response.data.success) {
+            throw new Error(response.data.message || 'Failed to check job status');
+        }
+        return response.data.data;
+    } catch (error) {
+        console.error('Check job status error:', error);
+        throw error;
+    }
+};
+
+/**
+ * Disconnect from SSE stream or stop polling
+ * @param {object} connection - Connection object from connectToJobStatus
+ */
+export const disconnectJobStatus = (connection) => {
+    if (connection && connection.close) {
+        connection.close();
     }
 };
 
@@ -335,6 +439,7 @@ export default {
     uploadToR2,
     startJob,
     connectToJobStatus,
+    checkJobStatus,
     disconnectJobStatus,
     getDownloadUrl,
     downloadFromR2,
