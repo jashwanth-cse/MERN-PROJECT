@@ -14,9 +14,10 @@ class ScheduledCleanupService {
     constructor() {
         this.isRunning = false;
         this.intervalId = null;
-        this.cleanupInterval = parseInt(process.env.CLEANUP_INTERVAL_MS) || 900000; // 15 minutes
-        this.jobRetentionTime = parseInt(process.env.JOB_RETENTION_MS) || 7200000; // 2 hours
-        this.downloadedRetentionTime = parseInt(process.env.DOWNLOADED_RETENTION_MS) || 1800000; // 30 min
+        this.cleanupInterval = parseInt(process.env.CLEANUP_INTERVAL_MS) || 600000; // 10 minutes
+        this.completedRetentionTime = 1800000; // 30 minutes (for non-downloaded)
+        this.downloadedRetentionTime = 600000; // 10 minutes (after download)
+        this.queuedJobTimeout = 3600000; // 1 hour for stuck queued jobs
     }
 
     /**
@@ -67,23 +68,25 @@ class ScheduledCleanupService {
                 errors: 0
             };
 
-            // Get all job IDs
-            const jobIds = jobService.getAllJobIds();
+            // Get ALL jobs from Firestore (not just in-memory)
+            const jobRepository = require('../repositories/jobRepository');
+            const allJobs = await jobRepository.getAllJobs();
 
-            for (const jobId of jobIds) {
+            console.log(`📊 Found ${allJobs.length} total jobs in Firestore`);
+
+            for (const job of allJobs) {
                 try {
-                    const job = await jobService.getJob(jobId);
-                    if (!job) continue;
+                    if (!job || !job.id) continue;
 
                     const shouldDelete = this.shouldDeleteJob(job);
 
                     if (shouldDelete) {
-                        console.log(`🗑️  Deleting old job: ${jobId} (age: ${this.getJobAge(job)}h)`);
+                        console.log(`🗑️  Deleting job: ${job.id} (status: ${job.status}, age: ${this.getJobAge(job)}h, downloaded: ${!!job.downloaded})`);
 
                         // Delete output file from R2
                         if (job.outputKey) {
                             try {
-                                await r2Service.deleteFile(job.outputKey);
+                                await r2Service.deleteObject(job.outputKey);
                                 stats.filesDeleted++;
                                 console.log(`   ✓ Deleted output: ${job.outputKey}`);
                             } catch (error) {
@@ -93,9 +96,9 @@ class ScheduledCleanupService {
                         }
 
                         // Delete input file from R2 (only if no other jobs are using it)
-                        if (job.inputKey && !this.isInputKeyInUse(job.inputKey, jobId, jobIds)) {
+                        if (job.inputKey && !await this.isInputKeyInUse(job.inputKey, job.id, allJobs)) {
                             try {
-                                await r2Service.deleteFile(job.inputKey);
+                                await r2Service.deleteObject(job.inputKey);
                                 stats.filesDeleted++;
                                 console.log(`   ✓ Deleted input: ${job.inputKey}`);
                             } catch (error) {
@@ -104,12 +107,13 @@ class ScheduledCleanupService {
                             }
                         }
 
-                        // Delete job from memory
-                        jobService.deleteJob(jobId);
+                        // Delete job from Firestore AND memory
+                        await jobRepository.deleteJob(job.id);
+                        jobService.deleteJob(job.id); // Also remove from memory if present
                         stats.jobsDeleted++;
                     }
                 } catch (error) {
-                    console.error(`Error cleaning job ${jobId}:`, error);
+                    console.error(`Error cleaning job ${job.id}:`, error);
                     stats.errors++;
                 }
             }
@@ -125,32 +129,49 @@ class ScheduledCleanupService {
      */
     shouldDeleteJob(job) {
         const now = Date.now();
-        const jobAge = now - job.createdAt;
+        const createdAt = job.createdAt instanceof Date ? job.createdAt.getTime() : job.createdAt;
+        const downloadedAt = job.downloadedAt instanceof Date ? job.downloadedAt.getTime() : job.downloadedAt;
+        const jobAge = now - createdAt;
 
-        // NEVER delete active jobs
-        if (job.status === 'pending' ||
-            job.status === 'queued' ||
-            job.status === 'processing') {
-            return false; // Protect active jobs
+        // NEVER delete currently processing jobs
+        if (job.status === 'processing') {
+            return false;
         }
 
-        // Delete failed jobs immediately
-        if (job.status === 'failed') {
-            return true; // Immediate cleanup
+        // Delete queued jobs stuck for more than 1 hour
+        if (job.status === 'queued' && jobAge > this.queuedJobTimeout) {
+            console.log(`   ⚠️  Deleting stuck queued job (${Math.floor(jobAge / 3600000)}h old)`);
+            return true;
+        }
+
+        // Keep fresh queued jobs
+        if (job.status === 'queued') {
+            return false;
+        }
+
+        // Delete failed and pending jobs immediately
+        if (job.status === 'failed' || job.status === 'pending') {
+            return true;
         }
 
         // For completed jobs
         if (job.status === 'completed') {
-            const TWO_HOURS = 7200000;
-            const THIRTY_MINUTES = 1800000;
-
-            // If user has downloaded, cleanup after 30 minutes
-            if (job.downloaded) {
-                return jobAge > THIRTY_MINUTES;
+            // If downloaded, delete after 10 minutes
+            if (job.downloaded && downloadedAt) {
+                const timeSinceDownload = now - downloadedAt;
+                if (timeSinceDownload > this.downloadedRetentionTime) {
+                    const minutesAgo = Math.floor(timeSinceDownload / 60000);
+                    console.log(`   📥 Downloaded ${minutesAgo} minutes ago`);
+                    return true;
+                }
+                return false;
             }
 
-            // If not downloaded yet, keep for 2 hours
-            return jobAge > TWO_HOURS;
+            // If NOT downloaded, delete after 30 minutes
+            if (jobAge > this.completedRetentionTime) {
+                console.log(`   ⏰ Not downloaded, ${Math.floor(jobAge / 60000)} minutes old`);
+                return true;
+            }
         }
 
         return false;
@@ -167,15 +188,12 @@ class ScheduledCleanupService {
     /**
      * Check if input key is being used by other jobs
      */
-    isInputKeyInUse(inputKey, excludeJobId, allJobIds) {
-        for (const jobId of allJobIds) {
-            if (jobId !== excludeJobId) {
-                const job = jobService.getJob(jobId);
-                if (job && job.inputKey === inputKey) {
-                    // Don't delete if another job is still using this input
-                    if (job.status === 'pending' || job.status === 'processing' || job.status === 'queued') {
-                        return true;
-                    }
+    async isInputKeyInUse(inputKey, excludeJobId, allJobs) {
+        for (const job of allJobs) {
+            if (job.id !== excludeJobId && job.inputKey === inputKey) {
+                // Don't delete if another job is still using this input
+                if (job.status === 'pending' || job.status === 'processing' || job.status === 'queued') {
+                    return true;
                 }
             }
         }

@@ -288,6 +288,16 @@ const getDownloadUrl = async (req, res) => {
             // Don't fail the request if tracking fails
         });
 
+        // Delete input file immediately after download URL is generated (user requirement)
+        if (job.inputKey) {
+            r2Service.deleteObject(job.inputKey).then(() => {
+                console.log(`✅ Deleted input file immediately: ${job.inputKey}`);
+            }).catch(err => {
+                console.warn(`Failed to delete input file ${job.inputKey}:`, err);
+                // Don't fail the request if deletion fails
+            });
+        }
+
         res.status(200).json({
             success: true,
             message: 'Download URL generated',
