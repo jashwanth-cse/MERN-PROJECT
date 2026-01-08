@@ -26,12 +26,17 @@ env:
       - RUNTIME
 
   - variable: CLEANUP_INTERVAL_MS
-    value: "300000"
+    value: "900000" # 15 minutes
     availability:
       - RUNTIME
 
   - variable: JOB_RETENTION_MS
-    value: "86400000"
+    value: "7200000" # 2 hours (undownloaded files)
+    availability:
+      - RUNTIME
+
+  - variable: DOWNLOADED_RETENTION_MS
+    value: "1800000" # 30 minutes (downloaded files)
     availability:
       - RUNTIME
 

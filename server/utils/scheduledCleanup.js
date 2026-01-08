@@ -14,8 +14,9 @@ class ScheduledCleanupService {
     constructor() {
         this.isRunning = false;
         this.intervalId = null;
-        this.cleanupInterval = parseInt(process.env.CLEANUP_INTERVAL_MS) || 300000; // 5 minutes
-        this.jobRetentionTime = parseInt(process.env.JOB_RETENTION_MS) || 86400000; // 24 hours
+        this.cleanupInterval = parseInt(process.env.CLEANUP_INTERVAL_MS) || 900000; // 15 minutes
+        this.jobRetentionTime = parseInt(process.env.JOB_RETENTION_MS) || 7200000; // 2 hours
+        this.downloadedRetentionTime = parseInt(process.env.DOWNLOADED_RETENTION_MS) || 1800000; // 30 min
     }
 
     /**
@@ -71,7 +72,7 @@ class ScheduledCleanupService {
 
             for (const jobId of jobIds) {
                 try {
-                    const job = jobService.getJob(jobId);
+                    const job = await jobService.getJob(jobId);
                     if (!job) continue;
 
                     const shouldDelete = this.shouldDeleteJob(job);
@@ -126,24 +127,30 @@ class ScheduledCleanupService {
         const now = Date.now();
         const jobAge = now - job.createdAt;
 
-        // Delete completed jobs older than retention time
-        if (job.status === 'completed' && jobAge > this.jobRetentionTime) {
-            return true;
+        // NEVER delete active jobs
+        if (job.status === 'pending' ||
+            job.status === 'queued' ||
+            job.status === 'processing') {
+            return false; // Protect active jobs
         }
 
-        // Delete failed jobs older than 1 hour
-        if (job.status === 'failed' && jobAge > 3600000) {
-            return true;
+        // Delete failed jobs immediately
+        if (job.status === 'failed') {
+            return true; // Immediate cleanup
         }
 
-        // Delete stale pending jobs older than 1 hour (likely orphaned)
-        if (job.status === 'pending' && jobAge > 3600000) {
-            return true;
-        }
+        // For completed jobs
+        if (job.status === 'completed') {
+            const TWO_HOURS = 7200000;
+            const THIRTY_MINUTES = 1800000;
 
-        // Delete processing jobs older than 2 hours (likely stuck)
-        if (job.status === 'processing' && jobAge > 7200000) {
-            return true;
+            // If user has downloaded, cleanup after 30 minutes
+            if (job.downloaded) {
+                return jobAge > THIRTY_MINUTES;
+            }
+
+            // If not downloaded yet, keep for 2 hours
+            return jobAge > TWO_HOURS;
         }
 
         return false;

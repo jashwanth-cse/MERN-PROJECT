@@ -277,6 +277,17 @@ const getDownloadUrl = async (req, res) => {
         // Generate signed download URL (5 minutes expiry)
         const result = await r2Service.generateDownloadUrl(job.outputKey, 300);
 
+        // Mark job as downloaded with timestamp
+        job.downloaded = true;
+        job.downloadedAt = new Date();
+
+        // Save updated job to Firestore
+        const jobRepository = require('../repositories/jobRepository');
+        await jobRepository.saveJob(jobId, job).catch(err => {
+            console.warn(`Failed to mark job ${jobId} as downloaded:`, err);
+            // Don't fail the request if tracking fails
+        });
+
         res.status(200).json({
             success: true,
             message: 'Download URL generated',
