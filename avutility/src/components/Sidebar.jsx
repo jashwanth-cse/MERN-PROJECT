@@ -7,8 +7,7 @@ const Sidebar = ({ activeTab = 'extract-audio', onToolChange, user }) => {
     const audioTools = [
         { id: 'extract-audio', name: 'Extract Audio', icon: 'graphic_eq' },
         { id: 'convert-audio', name: 'Convert Audio', icon: 'transform' },
-        { id: 'compress-audio', name: 'Compress Audio', icon: 'compress' },
-        { id: 'audio-presets', name: 'Audio Presets', icon: 'tune' }
+        { id: 'compress-audio', name: 'Compress Audio', icon: 'compress' }
     ];
 
     const videoTools = [
@@ -38,7 +37,7 @@ const Sidebar = ({ activeTab = 'extract-audio', onToolChange, user }) => {
     };
 
     return (
-        <aside className="w-64 h-full bg-surface-dark border-r border-border-dark flex flex-col shrink-0 shadow-2xl">
+        <aside className="w-64 h-full bg-surface-dark/95 md:bg-surface-dark backdrop-blur-xl border-r border-border-dark flex flex-col shrink-0 shadow-2xl">
             {/* Logo/Header */}
             <div className="h-20 flex items-center gap-3 px-6 border-b border-border-dark/50 shrink-0">
                 <div className="size-8 rounded-full bg-[#1b3224] flex items-center justify-center border border-border-dark text-primary shrink-0">

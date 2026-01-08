@@ -262,7 +262,7 @@ const Signup = () => {
                 <div className="text-center">
                     <p className="text-sm text-text-muted">
                         Already have an account?{' '}
-                        <a className="text-primary hover:text-white transition-colors font-medium ml-1" href="#">
+                        <a className="text-primary hover:text-white transition-colors font-medium ml-1" href="/login">
                             Log in
                         </a>
                     </p>

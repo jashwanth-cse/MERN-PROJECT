@@ -8,7 +8,6 @@ import { trackPageView, trackEvent } from '../utils/analytics';
 import ExtractAudio from './tools/ExtractAudio';
 import ConvertAudio from './tools/ConvertAudio';
 import CompressAudio from './tools/CompressAudio';
-import AudioPresets from './tools/AudioPresets';
 
 import ConvertVideo from './tools/ConvertVideo';
 import CompressVideo from './tools/CompressVideo';
@@ -28,10 +27,6 @@ const toolConfig = {
     'compress-audio': {
         title: 'Compress Audio',
         subtitle: 'Reduce audio file size while maintaining quality'
-    },
-    'audio-presets': {
-        title: 'Audio Presets',
-        subtitle: 'Apply professional audio processing presets'
     },
 
     'convert-video': {
@@ -106,8 +101,6 @@ const Dashboard = () => {
                 return <ConvertAudio />;
             case 'compress-audio':
                 return <CompressAudio />;
-            case 'audio-presets':
-                return <AudioPresets />;
 
             case 'convert-video':
                 return <ConvertVideo />;

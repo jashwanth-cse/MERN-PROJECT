@@ -134,3 +134,44 @@ body.fonts-loading {
 .page-transition {
   transition: opacity 0.2s ease-in-out;
 }
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+
+  /* Ensure minimum touch target size */
+  button,
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Prevent text selection on interactive elements */
+  button {
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  /* Optimize sidebar for mobile */
+  aside {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Ensure content doesn't go under notches */
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Very small screens (320px - 375px) */
+@media (max-width: 375px) {
+
+  /* Reduce font sizes slightly for better fit */
+  body {
+    font-size: 14px;
+  }
+
+  .text-sm {
+    font-size: 0.8125rem;
+  }
+}

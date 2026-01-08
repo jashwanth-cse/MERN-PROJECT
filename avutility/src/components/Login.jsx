@@ -195,12 +195,7 @@ const Login = () => {
                         </div>
                     </div>
 
-                    {/* Forgot Password */}
-                    <div className="text-right -mt-3">
-                        <a href="#" className="text-sm text-primary hover:text-white transition-colors">
-                            Forgot Password?
-                        </a>
-                    </div>
+                   
 
                     {/* Action Button */}
                     <button
@@ -225,12 +220,7 @@ const Login = () => {
                         )}
                     </button>
 
-                    {/* Divider */}
-                    <div className="flex items-center gap-3 my-4">
-                        <div className="flex-1 h-px bg-border-dark"></div>
-                        <span className="text-xs text-text-muted">or continue with</span>
-                        <div className="flex-1 h-px bg-border-dark"></div>
-                    </div>
+                   
 
                     {/* Other Sign-in Options */}
                     <div className="flex flex-col gap-3">
