@@ -1,5 +1,7 @@
 const jobService = require('../services/jobService');
-const r2Service = require('../services/r2Service');
+const { getR2Service } = require('../services/r2Service');
+
+const r2Service = getR2Service();
 
 /**
  * Scheduled Cleanup Service
